@@ -39,4 +39,212 @@ You can then run the script:
 
 bash
 Copy code
-./check_processes.sh
+./check_processes
+
+####### 
+
+### Providers for multiple regions (primary and replicas)
+provider "aws" {
+  region = "us-east-1"
+}
+
+provider "aws" {
+  alias  = "replica_west"
+  region = "us-west-2"
+}
+
+# Step 1: Create a VPC
+resource "aws_vpc" "main_vpc" {
+  cidr_block = "10.0.0.0/16"
+  tags = {
+    Name = "main_vpc"
+  }
+}
+
+# Step 2: Create Subnets for the VPC
+resource "aws_subnet" "main_subnet" {
+  count             = 2
+  vpc_id            = aws_vpc.main_vpc.id
+  cidr_block        = "10.0.${count.index}.0/24"
+  availability_zone = data.aws_availability_zones.available.names[count.index]
+}
+
+# Step 3: Create a Security Group for RDS
+resource "aws_security_group" "rds_sg" {
+  vpc_id = aws_vpc.main_vpc.id
+
+  ingress {
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "rds_security_group"
+  }
+}
+
+# Step 4: Create a Subnet Group for RDS
+resource "aws_db_subnet_group" "main_subnet_group" {
+  name       = "main_subnet_group"
+  subnet_ids = aws_subnet.main_subnet[*].id
+
+  tags = {
+    Name = "main_subnet_group"
+  }
+}
+
+# Step 5: Create the Primary RDS Instance
+resource "aws_db_instance" "primary_db" {
+  allocated_storage    = 20
+  engine               = "postgres"
+  engine_version       = "13.4"
+  instance_class       = "db.t3.micro"
+  name                 = "mydatabase"
+  username             = "admin"
+  password             = "password"
+  parameter_group_name = "default.postgres13"
+  db_subnet_group_name = aws_db_subnet_group.main_subnet_group.name
+  vpc_security_group_ids = [aws_security_group.rds_sg.id]
+  multi_az             = false
+  skip_final_snapshot  = true
+
+  tags = {
+    Name = "primary-rds-instance"
+  }
+}
+
+# Step 6: Create a Read Replica in us-east-1
+resource "aws_db_instance" "replica_db_east" {
+  instance_class         = "db.t3.micro"
+  engine                 = "postgres"
+  replicate_source_db    = aws_db_instance.primary_db.id
+  availability_zone      = "us-east-1a"
+  db_subnet_group_name   = aws_db_subnet_group.main_subnet_group.name
+  vpc_security_group_ids = [aws_security_group.rds_sg.id]
+  depends_on             = [aws_db_instance.primary_db]
+
+  tags = {
+    Name = "replica-rds-east"
+  }
+}
+
+# Step 7: Create a Read Replica in us-west-2
+resource "aws_db_instance" "replica_db_west" {
+  provider               = aws.replica_west
+  instance_class         = "db.t3.micro"
+  engine                 = "postgres"
+  replicate_source_db    = aws_db_instance.primary_db.id
+  availability_zone      = "us-west-2a"
+  db_subnet_group_name   = aws_db_subnet_group.main_subnet_group.name
+  vpc_security_group_ids = [aws_security_group.rds_sg.id]
+  depends_on             = [aws_db_instance.primary_db]
+
+  tags = {
+    Name = "replica-rds-# Providers for two regions (e.g., us-east-1 for primary and us-west-2 for replica)
+provider "aws" {
+  region = "us-east-1"
+}
+
+provider "aws" {
+  alias  = "replica"
+  region = "us-west-2"
+}
+
+# Step 1: Create a VPC
+resource "aws_vpc" "main_vpc" {
+  cidr_block = "10.0.0.0/16"
+  tags = {
+    Name = "main_vpc"
+  }
+}
+
+# Step 2: Create Subnets
+resource "aws_subnet" "main_subnet" {
+  count             = 2
+  vpc_id            = aws_vpc.main_vpc.id
+  cidr_block        = "10.0.${count.index}.0/24"
+  availability_zone = data.aws_availability_zones.available.names[count.index]
+}
+
+# Step 3: Create a Security Group
+resource "aws_security_group" "rds_sg" {
+  vpc_id = aws_vpc.main_vpc.id
+  ingress {
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  tags = {
+    Name = "rds_security_group"
+  }
+}
+
+# Step 4: Create the RDS Primary Instance
+resource "aws_db_instance" "main_db" {
+  allocated_storage    = 20
+  engine               = "postgres"
+  engine_version       = "13.4"
+  instance_class       = "db.t3.micro"
+  name                 = "mydatabase"
+  username             = "admin"
+  password             = "password"
+  parameter_group_name = "default.postgres13"
+  vpc_security_group_ids = [aws_security_group.rds_sg.id]
+  db_subnet_group_name = aws_db_subnet_group.main_subnet_group.name
+  multi_az             = false
+  skip_final_snapshot  = true
+
+  tags = {
+    Name = "primary-rds-instance"
+  }
+}
+
+# Step 5: Create a Subnet Group for RDS
+resource "aws_db_subnet_group" "main_subnet_group" {
+  name       = "main_subnet_group"
+  subnet_ids = aws_subnet.main_subnet[*].id
+
+  tags = {
+    Name = "main_subnet_group"
+  }
+}
+
+# Step 6: Create the Read Replica in another region
+resource "aws_db_instance" "replica_db" {
+  provider                    = aws.replica
+  instance_class              = "db.t3.micro"
+  engine                      = "postgres"
+  replicate_source_db         = "${aws_db_instance.main_db.id}"
+  availability_zone           = "us-west-2a"
+  vpc_security_group_ids      = [aws_security_group.rds_sg.id]
+  db_subnet_group_name        = aws_db_subnet_group.main_subnet_group.name
+  depends_on                  = [aws_db_instance.main_db]
+
+  tags = {
+    Name = "replica-rds-instance"
+  }
+}
+
+
+
+
+
+
+
+
