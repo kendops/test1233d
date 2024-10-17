@@ -1,0 +1,66 @@
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"  # Replace with your first region
+}
+
+provider "aws" {
+  alias  = "us_west_2"
+  region = "us-west-2"  # Replace with your second region
+}
+
+# VPC in us-east-1
+resource "aws_vpc" "vpc_east" {
+  provider = aws.us_east_1
+  cidr_block = "10.0.0.0/16"
+  tags = {
+    Name = "vpc-east"
+  }
+}
+
+# VPC in us-west-2
+resource "aws_vpc" "vpc_west" {
+  provider = aws.us_west_2
+  cidr_block = "10.1.0.0/16"
+  tags = {
+    Name = "vpc-west"
+  }
+}
+
+# Create VPC Peering Request (from us-east-1 to us-west-2)
+resource "aws_vpc_peering_connection" "peer" {
+  provider              = aws.us_east_1
+  peer_owner_id         = "YOUR_AWS_ACCOUNT_ID"  # Replace with your AWS account ID
+  peer_vpc_id           = aws_vpc.vpc_west.id
+  vpc_id                = aws_vpc.vpc_east.id
+  peer_region           = "us-west-2"
+  auto_accept           = false  # We will use aws_vpc_peering_connection_accepter to accept it in the other region
+
+  tags = {
+    Name = "vpc-peering-east-to-west"
+  }
+}
+
+# Accept the peering request in us-west-2
+resource "aws_vpc_peering_connection_accepter" "peer_accepter" {
+  provider                  = aws.us_west_2
+  vpc_peering_connection_id = aws_vpc_peering_connection.peer.id
+  auto_accept               = true
+
+  tags = {
+    Name = "vpc-peering-west-to-east"
+  }
+}
+
+# Update route tables to allow traffic between VPCs (optional but usually necessary)
+resource "aws_route" "route_east_to_west" {
+  route_table_id         = aws_vpc.main_route_table_id  # Adjust to your actual route table
+  destination_cidr_block = aws_vpc.vpc_west.cidr_block
+  vpc_peering_connection_id = aws_vpc_peering_connection.peer.id
+}
+
+resource "aws_route" "route_west_to_east" {
+  provider              = aws.us_west_2
+  route_table_id        = aws_vpc.main_route_table_id  # Adjust to your actual route table
+  destination_cidr_block = aws_vpc.vpc_east.cidr_block
+  vpc_peering_connection_id = aws_vpc_peering_connection.peer.id
+}
