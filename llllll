@@ -1,0 +1,35 @@
+# Security Group for primary RDS
+resource "aws_security_group" "primary_db_sg" {
+  provider = aws.us_east_1
+  vpc_id = aws_vpc.primary_vpc.id
+  ingress {
+    from_port = 5432
+    to_port = 5432
+    protocol = "tcp"
+    cidr_blocks = ["10.1.0.0/16"]
+  }
+  egress {
+    from_port = 0
+    to_port = 0
+    protocol = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# Security Group for secondary RDS
+resource "aws_security_group" "secondary_db_sg" {
+  provider = aws.us_west_2
+  vpc_id = aws_vpc.secondary_vpc.id
+  ingress {
+    from_port = 5432
+    to_port = 5432
+    protocol = "tcp"
+    cidr_blocks = ["10.0.0.0/16"]
+  }
+  egress {
+    from_port = 0
+    to_port = 0
+    protocol = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
