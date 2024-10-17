@@ -1,0 +1,167 @@
+# Providers for multiple regions
+provider "aws" {
+  region = "us-east-1"
+}
+
+provider "aws" {
+  alias  = "replica"
+  region = "us-west-2"
+}
+
+# Step 1: Create VPCs in both regions
+resource "aws_vpc" "primary_vpc" {
+  cidr_block = "10.0.0.0/16"
+  tags = {
+    Name = "primary_vpc"
+  }
+}
+
+resource "aws_vpc" "replica_vpc" {
+  provider   = aws.replica
+  cidr_block = "10.1.0.0/16"
+  tags = {
+    Name = "replica_vpc"
+  }
+}
+
+# Step 2: Create subnets in both VPCs
+resource "aws_subnet" "primary_subnet" {
+  vpc_id            = aws_vpc.primary_vpc.id
+  cidr_block        = "10.0.1.0/24"
+  availability_zone = data.aws_availability_zones.available.names[0]
+}
+
+resource "aws_subnet" "replica_subnet" {
+  provider          = aws.replica
+  vpc_id            = aws_vpc.replica_vpc.id
+  cidr_block        = "10.1.1.0/24"
+  availability_zone = data.aws_availability_zones.available.names[0]
+}
+
+# Step 3: Create VPC peering connection
+resource "aws_vpc_peering_connection" "vpc_peering" {
+  vpc_id        = aws_vpc.primary_vpc.id
+  peer_vpc_id   = aws_vpc.replica_vpc.id
+  peer_region   = "us-west-2"
+  auto_accept   = true
+
+  tags = {
+    Name = "vpc-peering"
+  }
+}
+
+# Step 4: Configure VPC peering route tables for cross-region access
+resource "aws_route" "primary_to_replica_route" {
+  route_table_id         = aws_vpc.primary_vpc.main_route_table_id
+  destination_cidr_block = aws_vpc.replica_vpc.cidr_block
+  vpc_peering_connection_id = aws_vpc_peering_connection.vpc_peering.id
+}
+
+resource "aws_route" "replica_to_primary_route" {
+  provider               = aws.replica
+  route_table_id         = aws_vpc.replica_vpc.main_route_table_id
+  destination_cidr_block = aws_vpc.primary_vpc.cidr_block
+  vpc_peering_connection_id = aws_vpc_peering_connection.vpc_peering.id
+}
+
+# Step 5: Create DB subnet groups for RDS instances
+resource "aws_db_subnet_group" "primary_subnet_group" {
+  name       = "primary-db-subnet-group"
+  subnet_ids = [aws_subnet.primary_subnet.id]
+
+  tags = {
+    Name = "primary-db-subnet-group"
+  }
+}
+
+resource "aws_db_subnet_group" "replica_subnet_group" {
+  provider   = aws.replica
+  name       = "replica-db-subnet-group"
+  subnet_ids = [aws_subnet.replica_subnet.id]
+
+  tags = {
+    Name = "replica-db-subnet-group"
+  }
+}
+
+# Step 6: Create security groups for RDS
+resource "aws_security_group" "primary_rds_sg" {
+  vpc_id = aws_vpc.primary_vpc.id
+
+  ingress {
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.replica_vpc.cidr_block]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "primary-rds-sg"
+  }
+}
+
+resource "aws_security_group" "replica_rds_sg" {
+  provider = aws.replica
+  vpc_id   = aws_vpc.replica_vpc.id
+
+  ingress {
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.primary_vpc.cidr_block]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "replica-rds-sg"
+  }
+}
+
+# Step 7: Create an RDS PostgreSQL instance in the primary region
+resource "aws_db_instance" "primary_db" {
+  allocated_storage    = 20
+  engine               = "postgres"
+  engine_version       = "13.4"
+  instance_class       = "db.t3.micro"
+  name                 = "mydatabase"
+  username             = "admin"
+  password             = "password"
+  parameter_group_name = "default.postgres13"
+  db_subnet_group_name = aws_db_subnet_group.primary_subnet_group.name
+  vpc_security_group_ids = [aws_security_group.primary_rds_sg.id]
+  multi_az             = false
+  skip_final_snapshot  = true
+
+  tags = {
+    Name = "primary-rds-instance"
+  }
+}
+
+# Step 8: Create the read replica in us-west-2
+resource "aws_db_instance" "replica_db" {
+  provider               = aws.replica
+  instance_class         = "db.t3.micro"
+  engine                 = "postgres"
+  replicate_source_db    = aws_db_instance.primary_db.arn
+  db_subnet_group_name   = aws_db_subnet_group.replica_subnet_group.name
+  vpc_security_group_ids = [aws_security_group.replica_rds_sg.id]
+  publicly_accessible    = false
+  availability_zone      = "us-west-2a"
+
+  tags = {
+    Name = "replica-rds-instance"
+  }
+}
