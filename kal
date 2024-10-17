@@ -1,0 +1,178 @@
+To achieve cross-region replication of a PostgreSQL RDS database using Terraform, you’ll need to:
+
+	1.	Create VPCs in both regions (us-east-1 and us-west-2).
+	2.	Configure VPC peering to connect the VPCs across regions.
+	3.	Set up subnet groups for the RDS instances.
+	4.	Create security groups to allow communication between the primary and replica RDS instances.
+	5.	Deploy the primary RDS instance in the primary region (us-east-1).
+	6.	Configure the replica RDS instance in the secondary region (us-west-2).
+
+Here’s a basic Terraform configuration that accomplishes these steps:
+
+1. Create VPCs and Subnets in Both Regions
+
+Define the VPCs and subnets:
+
+# VPC for us-east-1
+resource "aws_vpc" "primary_vpc" {
+  provider = aws.us_east_1
+  cidr_block = "10.0.0.0/16"
+}
+
+# VPC for us-west-2
+resource "aws_vpc" "secondary_vpc" {
+  provider = aws.us_west_2
+  cidr_block = "10.1.0.0/16"
+}
+
+# Subnets for primary region
+resource "aws_subnet" "primary_subnet_1" {
+  provider = aws.us_east_1
+  vpc_id = aws_vpc.primary_vpc.id
+  cidr_block = "10.0.1.0/24"
+  availability_zone = "us-east-1a"
+}
+
+resource "aws_subnet" "primary_subnet_2" {
+  provider = aws.us_east_1
+  vpc_id = aws_vpc.primary_vpc.id
+  cidr_block = "10.0.2.0/24"
+  availability_zone = "us-east-1b"
+}
+
+# Subnets for secondary region
+resource "aws_subnet" "secondary_subnet_1" {
+  provider = aws.us_west_2
+  vpc_id = aws_vpc.secondary_vpc.id
+  cidr_block = "10.1.1.0/24"
+  availability_zone = "us-west-2a"
+}
+
+resource "aws_subnet" "secondary_subnet_2" {
+  provider = aws.us_west_2
+  vpc_id = aws_vpc.secondary_vpc.id
+  cidr_block = "10.1.2.0/24"
+  availability_zone = "us-west-2b"
+}
+
+2. Create VPC Peering
+
+Establish VPC peering between the two VPCs:
+
+# VPC Peering connection
+resource "aws_vpc_peering_connection" "peer_connection" {
+  provider = aws.us_east_1
+  vpc_id = aws_vpc.primary_vpc.id
+  peer_vpc_id = aws_vpc.secondary_vpc.id
+  peer_region = "us-west-2"
+}
+
+# Route tables for primary VPC
+resource "aws_route" "primary_to_secondary" {
+  provider = aws.us_east_1
+  route_table_id = aws_vpc.primary_vpc.main_route_table_id
+  destination_cidr_block = "10.1.0.0/16"
+  vpc_peering_connection_id = aws_vpc_peering_connection.peer_connection.id
+}
+
+# Route tables for secondary VPC
+resource "aws_route" "secondary_to_primary" {
+  provider = aws.us_west_2
+  route_table_id = aws_vpc.secondary_vpc.main_route_table_id
+  destination_cidr_block = "10.0.0.0/16"
+  vpc_peering_connection_id = aws_vpc_peering_connection.peer_connection.id
+}
+
+3. Create RDS Subnet Groups
+
+Define the DB subnet groups for both regions:
+
+# RDS Subnet Group for primary region
+resource "aws_db_subnet_group" "primary_db_subnet_group" {
+  provider = aws.us_east_1
+  name = "primary-db-subnet-group"
+  subnet_ids = [aws_subnet.primary_subnet_1.id, aws_subnet.primary_subnet_2.id]
+}
+
+# RDS Subnet Group for secondary region
+resource "aws_db_subnet_group" "secondary_db_subnet_group" {
+  provider = aws.us_west_2
+  name = "secondary-db-subnet-group"
+  subnet_ids = [aws_subnet.secondary_subnet_1.id, aws_subnet.secondary_subnet_2.id]
+}
+
+4. Create Security Groups for RDS Communication
+
+Define security groups allowing communication between the primary and replica RDS:
+
+# Security Group for primary RDS
+resource "aws_security_group" "primary_db_sg" {
+  provider = aws.us_east_1
+  vpc_id = aws_vpc.primary_vpc.id
+  ingress {
+    from_port = 5432
+    to_port = 5432
+    protocol = "tcp"
+    cidr_blocks = ["10.1.0.0/16"]
+  }
+  egress {
+    from_port = 0
+    to_port = 0
+    protocol = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# Security Group for secondary RDS
+resource "aws_security_group" "secondary_db_sg" {
+  provider = aws.us_west_2
+  vpc_id = aws_vpc.secondary_vpc.id
+  ingress {
+    from_port = 5432
+    to_port = 5432
+    protocol = "tcp"
+    cidr_blocks = ["10.0.0.0/16"]
+  }
+  egress {
+    from_port = 0
+    to_port = 0
+    protocol = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+5. Deploy the Primary RDS Instance
+
+Create the primary RDS PostgreSQL instance:
+
+# Primary RDS instance
+resource "aws_db_instance" "primary_rds" {
+  provider = aws.us_east_1
+  identifier = "primary-postgres-db"
+  engine = "postgres"
+  instance_class = "db.t3.medium"
+  allocated_storage = 20
+  db_subnet_group_name = aws_db_subnet_group.primary_db_subnet_group.name
+  vpc_security_group_ids = [aws_security_group.primary_db_sg.id]
+  username = "admin"
+  password = "password123"
+  skip_final_snapshot = true
+}
+
+6. Configure the Replica RDS Instance
+
+Set up the read replica in the secondary region:
+
+# Replica RDS instance
+resource "aws_db_instance" "replica_rds" {
+  provider = aws.us_west_2
+  identifier = "replica-postgres-db"
+  engine = "postgres"
+  instance_class = "db.t3.medium"
+  db_subnet_group_name = aws_db_subnet_group.secondary_db_subnet_group.name
+  vpc_security_group_ids = [aws_security_group.secondary_db_sg.id]
+  replicate_source_db = aws_db_instance.primary_rds.arn
+  skip_final_snapshot = true
+}
+
+This Terraform setup covers the essentials for creating a cross-region, replicated PostgreSQL RDS deployment with VPC peering. Make sure to replace placeholder values, such as passwords and instance sizes, as needed.
