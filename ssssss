@@ -1,0 +1,207 @@
+provider "aws" {
+  alias  = "primary"
+  region = "us-east-1"
+}
+
+provider "aws" {
+  alias  = "secondary"
+  region = "us-west-2"
+}
+
+variable "primary_vpc_cidr" {
+  default = "10.0.0.0/16"
+}
+
+variable "secondary_vpc_cidr" {
+  default = "10.1.0.0/16"
+}
+
+variable "db_name" {
+  default = "mydatabase"
+}
+
+variable "db_username" {
+  default = "admin"
+}
+
+variable "db_password" {
+  default = "mysecurepassword"
+}
+
+variable "db_instance_class" {
+  default = "db.t3.micro"
+}
+
+variable "db_allocated_storage" {
+  default = 20
+}
+
+
+
+resource "aws_vpc" "primary_vpc" {
+  provider   = aws.primary
+  cidr_block = var.primary_vpc_cidr
+  tags = {
+    Name = "Primary-VPC"
+  }
+}
+
+resource "aws_vpc" "secondary_vpc" {
+  provider   = aws.secondary
+  cidr_block = var.secondary_vpc_cidr
+  tags = {
+    Name = "Secondary-VPC"
+  }
+}
+
+resource "aws_subnet" "primary_subnet" {
+  provider          = aws.primary
+  vpc_id            = aws_vpc.primary_vpc.id
+  cidr_block        = "10.0.1.0/24"
+  availability_zone = "us-east-1a"
+  tags = {
+    Name = "Primary-Subnet"
+  }
+}
+
+resource "aws_subnet" "secondary_subnet" {
+  provider          = aws.secondary
+  vpc_id            = aws_vpc.secondary_vpc.id
+  cidr_block        = "10.1.1.0/24"
+  availability_zone = "us-west-2a"
+  tags = {
+    Name = "Secondary-Subnet"
+  }
+}
+
+resource "aws_ec2_transit_gateway" "tg" {
+  provider = aws.primary
+  tags = {
+    Name = "My-Transit-Gateway"
+  }
+}
+
+resource "aws_ec2_transit_gateway_vpc_attachment" "primary_attachment" {
+  provider           = aws.primary
+  transit_gateway_id = aws_ec2_transit_gateway.tg.id
+  vpc_id             = aws_vpc.primary_vpc.id
+  subnet_ids         = [aws_subnet.primary_subnet.id]
+
+  tags = {
+    Name = "Primary-TG-Attachment"
+  }
+}
+
+resource "aws_ec2_transit_gateway_vpc_attachment" "secondary_attachment" {
+  provider           = aws.secondary
+  transit_gateway_id = aws_ec2_transit_gateway.tg.id
+  vpc_id             = aws_vpc.secondary_vpc.id
+  subnet_ids         = [aws_subnet.secondary_subnet.id]
+
+  tags = {
+    Name = "Secondary-TG-Attachment"
+  }
+}
+
+resource "aws_security_group" "db_sg" {
+  provider = aws.primary
+  name     = "db_security_group"
+  vpc_id   = aws_vpc.primary_vpc.id
+
+  ingress {
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = ["10.0.0.0/16", "10.1.0.0/16"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "DB-Security-Group"
+  }
+}
+
+resource "aws_db_subnet_group" "db_subnet_group" {
+  provider = aws.primary
+  name     = "db_subnet_group"
+  subnet_ids = [aws_subnet.primary_subnet.id]
+
+  tags = {
+    Name = "DB-Subnet-Group"
+  }
+}
+
+resource "aws_db_instance" "primary_postgresql" {
+  provider               = aws.primary
+  allocated_storage      = var.db_allocated_storage
+  engine                 = "postgres"
+  engine_version         = "13.4"
+  instance_class         = var.db_instance_class
+  name                   = var.db_name
+  username               = var.db_username
+  password               = var.db_password
+  parameter_group_name   = "default.postgres13"
+  skip_final_snapshot    = true
+  publicly_accessible    = false
+  vpc_security_group_ids = [aws_security_group.db_sg.id]
+  db_subnet_group_name   = aws_db_subnet_group.db_subnet_group.name
+
+  tags = {
+    Name = "Primary-RDS"
+  }
+}
+
+# Read Replica in the secondary region
+resource "aws_db_instance" "read_replica" {
+  provider                   = aws.secondary
+  instance_class             = var.db_instance_class
+  engine                     = "postgres"
+  engine_version             = "13.4"
+  publicly_accessible        = false
+  replicate_source_db        = aws_db_instance.primary_postgresql.arn
+  vpc_security_group_ids     = [aws_security_group.db_sg.id]
+  db_subnet_group_name       = aws_db_subnet_group.db_subnet_group.name
+  availability_zone          = "us-west-2a"
+
+  tags = {
+    Name = "Read-Replica-RDS"
+  }
+}
+
+
+#####################
+
+variable "primary_vpc_cidr" {
+  default = "10.0.0.0/16"
+}
+
+variable "secondary_vpc_cidr" {
+  default = "10.1.0.0/16"
+}
+
+variable "db_name" {
+  default = "mydatabase"
+}
+
+variable "db_username" {
+  default = "admin"
+}
+
+variable "db_password" {
+  default = "mysecurepassword"
+}
+
+variable "db_instance_class" {
+  default = "db.t3.micro"
+}
+
+variable "db_allocated_storage" {
+  default = 20
+}
+
