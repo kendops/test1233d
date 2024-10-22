@@ -1,0 +1,18 @@
+eksctl create cluster \
+  --name my-eks-cluster \
+  --region us-west-2 \
+  --vpc-id vpc-12345678 \
+  --subnets subnet-12345678,subnet-87654321 \
+  --security-group sg-0123456789abcdef0 \
+  --nodegroup-name my-node-group \
+  --node-type t3.medium \
+  --nodes 2 \
+  --nodes-min 1 \
+  --nodes-max 3 \
+  --node-ami auto \
+  --node-private-networking \
+  --cluster-iam-role arn:aws:iam::123456789012:role/my-eks-cluster-role \
+  --node-iam-role arn:aws:iam::123456789012:role/my-eks-node-role \
+  --ssh-access \
+  --ssh-public-key my-keypair \
+  --managed
