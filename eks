@@ -1,0 +1,483 @@
+#######################################
+# local.tf
+#######################################
+
+locals {
+  name = var.cluster_name
+  # region = "eu-west-1"
+
+  # vpc_cidr = "10.0.0.0/16"
+  # azs      = slice(data.aws_availability_zones.available.names, 0, 3)
+
+  tags = {
+    Terraform   = "true"
+    Cluster     = "prod2-eks-cluster"
+    Environment ="Prod"
+  }
+}
+ 
+
+########################################
+# main.tf
+########################################
+
+provider "kubernetes" {
+  host                   = module.eks.cluster_endpoint
+  token                  = module.eks.cluster_token
+  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_id]
+    command     = "aws"
+  }
+}
+
+provider "helm" {
+  kubernetes {
+    host                   = module.eks.cluster_endpoint
+    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      # This requires the awscli to be installed locally where Terraform is executed
+      args = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+    }
+  }
+}
+
+provider "kubectl" {
+  apply_retry_count      = 5
+  host                   = module.eks.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+  load_config_file       = false
+
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    # This requires the awscli to be installed locally where Terraform is executed
+    args = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+  }
+}
+
+provider "aws" {
+  region = "us-east-1"
+  alias  = "ecr-karpenter"
+
+}
+
+module "eks" {
+  source  = "terraform-aws-modules/eks/aws"
+  version = "~> 20.0"
+  cluster_name    = var.cluster_name
+  cluster_version = var.cluster_version
+  cluster_endpoint_public_access = true
+  cluster_addons = {
+    coredns                = {}
+    eks-pod-identity-agent = {}
+    kube-proxy             = {}
+    vpc-cni                = {}
+  }
+  cluster_enabled_log_types = [
+    "api",
+    "audit",
+    "authenticator",
+    "controllerManager",
+    "scheduler"
+  ]
+  vpc_id = module.vpc.vpc_id
+  # create_iam_role = true
+  include_oidc_root_ca_thumbprint = true
+  subnet_ids                      = ["us-east-1a", "us-east-1b", "us-east-1c"]
+  control_plane_subnet_ids        = ["us-east-1a", "us-east-1b", "us-east-1c"]
+  # EKS Managed Node Group(s)
+  eks_managed_node_group_defaults = {
+    instance_types = "c3.4xlarge"
+  }
+  eks_managed_node_groups = {
+    prod_node_group = {
+      # Starting on 1.30, AL2023 is the default AMI type for EKS managed node groups
+      ami_type       = var.node_group_ami_type
+      instance_types = var.node_group_instance_types
+      min_size     = var.min_size
+      max_size     = var.max_size
+      desired_size = var.desired_size
+      taints = {
+        # This Taint aims to keep just EKS Addons and Karpenter running on this MNG
+        # The pods that do not tolerate this taint should run on nodes created by Karpenter
+        addons = {
+          key    = "CriticalAddonsOnly"
+          value  = "true"
+          effect = "NO_SCHEDULE"
+        },
+      }
+    }
+  }
+
+    tags = {
+    Name = "prod2-eks-cluster"
+    Owner       = "Cloud Team"
+    App = "Jira/Confluence"
+    Environment = "prod"
+  }
+  # Cluster access entry
+  # To add the current caller identity as an administrator
+  enable_cluster_creator_admin_permissions = true
+  node_security_group_tags = merge(local.tags, {
+    # NOTE - if creating multiple security groups with this module, only tag the
+    # security group that Karpenter should utilize with the following tag
+    # (i.e. - at most, only one security group should have this tag in your account)
+    "karpenter.sh/discovery" = var.cluster_name
+  })
+  tags = local.tags
+}
+
+module "vpc" {
+  source = "terraform-aws-modules/vpc/aws"
+  name                 = "prod2-eks-vpc"
+  cidr = var.vpc_cidr
+  azs             = var.azs
+  private_subnets = var.private_subnets
+  public_subnets  = var.public_subnets
+  enable_nat_gateway   = true
+  single_nat_gateway   = true
+  enable_dns_hostnames = true
+  enable_vpn_gateway   = false
+  tags = merge(local.tags, {
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+  })
+  public_subnet_tags = {
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+    "kubernetes.io/role/internal-elb"           = 1
+    # Tags subnets for Karpenter auto-discovery
+    "karpenter.sh/discovery" = local.name
+  }
+  private_subnet_tags = {
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+    "kubernetes.io/role/internal-elb"           = 1
+    # Tags subnets for Karpenter auto-discovery
+    "karpenter.sh/discovery" = local.name
+  }
+}
+
+resource "aws_iam_role" "pod-identity-role" {
+  name = "pod-identity-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = ["sts:AssumeRole", "sts:TagSession"]
+        Effect = "Allow"
+        Principal = {
+          Service = "pods.eks.amazonaws.com"
+        }
+      },
+    ]
+  })
+}
+resource "aws_iam_policy" "pod-identity-policy" {
+  name = "pod-identity-policy"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action   = ["s3:GetObject", "s3:ListAllMyBuckets", "s3:ListObjects", "s3:ListBucket"]
+        Effect   = "Allow"
+        Resource = ["*"]
+      }
+    ]
+  })
+}
+resource "aws_iam_role_policy_attachment" "pod-identity-attachment" {
+  policy_arn = aws_iam_policy.pod-identity-policy.arn
+  role       = aws_iam_role.pod-identity-role.name
+}
+resource "aws_eks_pod_identity_association" "example" {
+  cluster_name    = module.eks.cluster_name
+  role_arn        = aws_iam_role.pod-identity-role.arn
+  namespace       = "default"
+  service_account = "general-sa"
+}
+
+################################################################################
+# Karpenter
+################################################################################
+module "karpenter" {
+  source       = "terraform-aws-modules/eks/aws//modules/karpenter"
+  version      = "~> 20.0"
+  cluster_name = module.eks.cluster_name
+  enable_v1_permissions = true
+  enable_pod_identity             = true
+  create_pod_identity_association = true
+  # Used to attach additional IAM policies to the Karpenter node IAM role
+  node_iam_role_additional_policies = {
+    AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+  }
+  tags = local.tags
+}
+################################################################################
+# Karpenter Helm chart & manifests
+# Not required; just to demonstrate functionality of the sub-module
+################################################################################
+resource "helm_release" "karpenter" {
+  namespace           = "kube-system"
+  name                = "karpenter"
+  repository          = "oci://public.ecr.aws/karpenter"
+  repository_username = data.aws_ecrpublic_authorization_token.token.user_name
+  repository_password = data.aws_ecrpublic_authorization_token.token.password
+  chart               = "karpenter"
+  # version             = "1.0.0"
+  wait = false
+  values = [
+    <<-EOT
+    serviceAccount:
+      name: ${module.karpenter.service_account}
+    settings:
+      clusterName: ${module.eks.cluster_name}
+      clusterEndpoint: ${module.eks.cluster_endpoint}
+      interruptionQueue: ${module.karpenter.queue_name}
+    replicas: 1
+    EOT
+  ]
+}
+resource "kubectl_manifest" "karpenter_node_class" {
+  yaml_body = <<-YAML
+    apiVersion: karpenter.k8s.aws/v1beta1
+    kind: EC2NodeClass
+    metadata:
+      name: default
+    spec:
+      amiFamily: AL2023
+      role: ${module.karpenter.node_iam_role_name}
+      subnetSelectorTerms:
+        - tags:
+            karpenter.sh/discovery: ${module.eks.cluster_name}
+      securityGroupSelectorTerms:
+        - tags:
+            karpenter.sh/discovery: ${module.eks.cluster_name}
+      tags:
+        karpenter.sh/discovery: ${module.eks.cluster_name}
+  YAML
+  depends_on = [
+    helm_release.karpenter
+  ]
+}
+resource "kubectl_manifest" "karpenter_node_pool" {
+  yaml_body = <<-YAML
+    apiVersion: karpenter.sh/v1beta1
+    kind: NodePool
+    metadata:
+      name: default
+    spec:
+      template:
+        spec:
+          nodeClassRef:
+            name: default
+          requirements:
+            - key: "karpenter.k8s.aws/instance-category"
+              operator: In
+              values: ["t", "c", "m"]
+            - key: "karpenter.k8s.aws/instance-cpu"
+              operator: In
+              values: ["4", "8", "16", "32"]
+            - key: "karpenter.k8s.aws/instance-hypervisor"
+              operator: In
+              values: ["nitro"]
+            - key: "karpenter.k8s.aws/instance-generation"
+              operator: Gt
+              values: ["2"]
+      limits:
+        cpu: 500
+      disruption:
+        consolidationPolicy: WhenEmpty
+        consolidateAfter: 30s
+  YAML
+  depends_on = [
+    kubectl_manifest.karpenter_node_class
+  ]
+}
+
+# Example deployment using the [pause image](https://www.ianlewis.org/en/almighty-pause-container)
+# and starts with zero replicas
+# resource "kubectl_manifest" "karpenter_example_deployment" {
+#   yaml_body = <<-YAML
+#     apiVersion: apps/v1
+#     kind: Deployment
+#     metadata:
+#       name: inflate
+#     spec:
+#       replicas: 0
+#       selector:
+#         matchLabels:
+#           app: inflate
+#       template:
+#         metadata:
+#           labels:
+#             app: inflate
+#         spec:
+#           terminationGracePeriodSeconds: 0
+#           containers:
+#             - name: inflate
+#               image: public.ecr.aws/eks-distro/kubernetes/pause:3.7
+#               resources:
+#                 requests:
+#                   cpu: 1
+#   YAML
+#   depends_on = [
+#     helm_release.karpenter
+#   ]
+# }
+
+################################################
+# variables.tf
+################################################
+
+
+#============================================================
+#             General variables
+#============================================================
+
+variable "project" {
+  description = "Project name."
+  type        = string
+  default = "Jira/Coonfluence"
+}
+
+
+#============================================================
+#             VPC variables
+#============================================================
+
+variable "cluster_name" {
+  description = "The name of the EKS cluster"
+  type        = string
+  default = "prod2-eks-cluster"
+
+}
+
+variable "azs" {
+  description = "The availability zones for the EKS cluster"
+  type        = list(string)
+  default     = ["us-east-1a", "us-east-1b", "us-east-1c"]
+
+}
+
+variable "vpc_cidr" {
+  description = "The CIDR block for the VPC"
+  type        = string
+  default     = "172.25.0.0"
+  #default     = "10.0.0.0/16"
+  # validation {
+  #   condition     = can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2}$", var.vpc_cidr))
+  #   error_message = "The VPC CIDR block must be a valid IPv4 CIDR notation."
+  # }
+}
+
+variable "private_subnets" {
+  description = "The private subnets for the EKS cluster"
+  type        = list(string)
+  # default = ["subnet-0816a750", "subnet-e9a30dc3"]
+  default     = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
+  # validation {
+  #   condition     = length(var.private_subnets) == length(var.azs)
+  #   error_message = "The number of private subnets must match the number of availability zones."
+  # }
+}
+
+variable "public_subnets" {
+  description = "The public subnets for the EKS cluster"
+  type        = list(string)
+  default     = ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24"]
+  # validation {
+  #   condition     = length(var.public_subnets) == length(var.azs)
+  #   error_message = "The number of public subnets must match the number of availability zones."
+  # }
+}
+variable "instance_types" {
+  description = "The instance types for the EKS managed node group"
+  type        = list(string)
+  default     = ["c3.4xlarge"]
+
+}
+
+variable "node_group_ami_type" {
+  description = "The AMI type for the EKS managed node group"
+  type        = string
+  default     = "AL2023_x86_64_STANDARD"
+
+}
+
+variable "node_group_instance_types" {
+  description = "The instance types for the EKS managed node group"
+  type        = list(string)
+  default     = ["c3.4xlarge"]
+
+}
+
+variable "cluster_version" {
+  description = "The Kubernetes version for the EKS cluster"
+  type        = string
+  default     = "1.30"
+
+}
+
+variable "min_size" {
+  description = "The minimum size for the EKS managed node group"
+  type        = number
+  default     = 2
+
+}
+
+variable "max_size" {
+  description = "The maximum size for the EKS managed node group"
+  type        = number
+  default     = 4
+
+}
+
+variable "desired_size" {
+  description = "The desired size for the EKS managed node group"
+  type        = number
+  default     = 2
+
+}
+
+
+variable "environment" {
+  description = "The environment for the EKS cluster"
+  type        = string
+  default     = "prod"
+
+}
+
+#################################################
+# versions.tf
+#################################################
+
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = "~> 2.32"
+    }
+    helm = {
+      source  = "hashicorp/helm"
+      version = "~> 2.15"
+    }
+    kubectl = {
+      source  = "gavinbunney/kubectl"
+      version = "~> 1.14"
+    }
+  }
+}
+
+
+
+
+
+
+
