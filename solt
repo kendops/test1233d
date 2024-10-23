@@ -1,0 +1,170 @@
+To create an IAM role and attach a policy using the AWS CLI, follow these steps:
+
+1. Create an IAM Role
+
+You can create an IAM role by specifying a trust policy that allows a service or another AWS account to assume the role. For example, if you want to create a role that allows EC2 instances to assume the role, use the following steps:
+
+Create Trust Policy (for EC2)
+
+First, create a trust policy JSON file (trust-policy.json):
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "ec2.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+
+Then, create the role using this trust policy:
+
+aws iam create-role --role-name MyEC2Role --assume-role-policy-document file://trust-policy.json
+
+2. Attach a Policy to the IAM Role
+
+Once the role is created, you can attach AWS managed or custom policies to it. For example, to attach the AmazonEC2ReadOnlyAccess policy to the role:
+
+aws iam attach-role-policy --role-name MyEC2Role --policy-arn arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess
+
+If you have a custom policy, you can create it first and then attach it.
+
+3. Optional: Create and Attach a Custom Policy
+
+If you want to create a custom policy, first create a JSON file that defines the permissions (policy.json):
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::example-bucket"
+    }
+  ]
+}
+
+Then, create the policy:
+
+aws iam create-policy --policy-name MyCustomPolicy --policy-document file://policy.json
+
+Finally, attach the custom policy to the role:
+
+aws iam attach-role-policy --role-name MyEC2Role --policy-arn arn:aws:iam::aws:policy/MyCustomPolicy
+
+Summary of Commands
+
+	1.	Create an IAM role with a trust policy:
+
+aws iam create-role --role-name MyEC2Role --assume-role-policy-document file://trust-policy.json
+
+
+	2.	Attach a managed policy to the role:
+
+aws iam attach-role-policy --role-name MyEC2Role --policy-arn arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess
+
+
+	3.	(Optional) Create and attach a custom policy:
+
+aws iam create-policy --policy-name MyCustomPolicy --policy-document file://policy.json
+aws iam attach-role-policy --role-name MyEC2Role --policy-arn arn:aws:iam::aws:policy/MyCustomPolicy
+
+
+
+This process will help create and attach policies to an IAM role using AWS CLI.
+
+-----
+
+
+
+
+
+If you’re experiencing an EKS node failing to join the cluster when using the AWS CLI, here’s a detailed breakdown of potential issues and their solutions:
+
+1. IAM Role Misconfiguration
+
+	•	Error: The worker node lacks necessary IAM permissions to communicate with the EKS control plane.
+	•	Solution: Ensure the EC2 instance role attached to the worker node has the following policies:
+	•	AmazonEKSWorkerNodePolicy
+	•	AmazonEC2ContainerRegistryReadOnly
+	•	AmazonEKS_CNI_Policy
+
+You can verify or attach these policies using the CLI:
+
+aws iam attach-role-policy --role-name <node-role> --policy-arn arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+aws iam attach-role-policy --role-name <node-role> --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+aws iam attach-role-policy --role-name <node-role> --policy-arn arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+
+2. Cluster Security Group Misconfiguration
+
+	•	Error: The security group associated with the worker nodes does not allow communication with the control plane.
+	•	Solution: Ensure the security group allows inbound traffic from the control plane (on port 443) and outbound traffic to the cluster.
+
+To check the security group settings:
+
+aws ec2 describe-security-groups --group-ids <security-group-id>
+
+Add necessary rules if missing:
+
+aws ec2 authorize-security-group-ingress --group-id <sg-id> --protocol tcp --port 443 --source-group <cluster-sg-id>
+
+3. Node Group Subnet Issues
+
+	•	Error: Worker nodes are deployed in subnets that are not part of the EKS cluster’s VPC or subnets that do not allow access to the EKS control plane.
+	•	Solution: Verify that the worker nodes are launched in the correct subnets, and those subnets are associated with the cluster.
+
+Check subnets associated with your cluster:
+
+aws eks describe-cluster --name <cluster-name> --query 'cluster.resourcesVpcConfig.subnetIds'
+
+Make sure your node group is launched in the listed subnets.
+
+4. Node Bootstrap Configuration
+
+	•	Error: The worker node might not be correctly configured to join the cluster due to incorrect bootstrap arguments.
+	•	Solution: Review the EC2 instance’s user data, which should contain the correct kubelet and EKS cluster configuration. Ensure the --b64-cluster-ca and --apiserver-endpoint values are correct.
+
+You can retrieve these values for the bootstrap script using the CLI:
+
+aws eks describe-cluster --name <cluster-name> --query 'cluster.certificateAuthority.data'
+aws eks describe-cluster --name <cluster-name> --query 'cluster.endpoint'
+
+5. Node Not Ready Due to CNI Issues
+
+	•	Error: The worker node may join the cluster but stay in a “NotReady” state due to issues with the Amazon VPC CNI plugin.
+	•	Solution: Ensure the VPC CNI plugin is installed correctly and the necessary IAM policies are applied. If the CNI plugin is not working, restart the pod:
+
+kubectl get pods -n kube-system
+kubectl delete pod <aws-node-pod-name> -n kube-system
+
+Alternatively, you can manually apply the latest CNI:
+
+kubectl apply -f https://raw.githubusercontent.com/aws/amazon-vpc-cni-k8s/master/config/v1.9/aws-k8s-cni.yaml
+
+6. Incorrect AMI
+
+	•	Error: The worker nodes are using an incorrect AMI that is not compatible with your EKS version.
+	•	Solution: Ensure the worker nodes are using the Amazon EKS optimized AMI. You can get the latest AMI ID for your region using the CLI:
+
+aws ssm get-parameters --names /aws/service/eks/optimized-ami/<k8s-version>/amazon-linux-2/recommended/image_id --region <region> --query 'Parameters[0].[Value]'
+
+7. Cluster Authentication Issue
+
+	•	Error: The node cannot authenticate to the EKS API server.
+	•	Solution: Ensure the correct aws-auth ConfigMap is applied to grant permissions to the worker node IAM role.
+
+Check the current aws-auth ConfigMap:
+
+kubectl get configmap -n kube-system aws-auth -o yaml
+
+Make sure the IAM role associated with the node is listed under mapRoles.
+
+Conclusion
+
+By systematically checking the IAM roles, security groups, node bootstrap configuration, and node group setup, you can identify and resolve most issues that prevent an EKS node from joining the cluster using the CLI.
+
+
