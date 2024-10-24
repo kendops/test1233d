@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# Variables
+MAX_ROLE_NAME="Prod1-eks-role"
+ADMIN_ROLE_NAME="EKSAdminRole"
+
+# Trust policy JSON for EC2
+read -r -d '' TRUST_POLICY <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "ec2.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
+
+# Create the Maximum Permission Role for EKS Node Group
+echo "Creating IAM role: $MAX_ROLE_NAME"
+aws iam create-role --role-name $MAX_ROLE_NAME --assume-role-policy-document "$TRUST_POLICY"
+
+# Attach necessary policies for the Max Permission Role
+echo "Attaching policies to $MAX_ROLE_NAME"
+aws iam attach-role-policy --role-name $MAX_ROLE_NAME --policy-arn arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+aws iam attach-role-policy --role-name $MAX_ROLE_NAME --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+aws iam attach-role-policy --role-name $MAX_ROLE_NAME --policy-arn arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+aws iam attach-role-policy --role-name $MAX_ROLE_NAME --policy-arn arn:aws:iam::aws:policy/AmazonEC2FullAccess
+
+# Create the Admin Permission Role for EKS Node Group
+echo "Creating IAM role: $ADMIN_ROLE_NAME"
+aws iam create-role --role-name $ADMIN_ROLE_NAME --assume-role-policy-document "$TRUST_POLICY"
+
+# Attach the AdministratorAccess policy to the Admin Role
+echo "Attaching AdministratorAccess policy to $ADMIN_ROLE_NAME"
+aws iam attach-role-policy --role-name $ADMIN_ROLE_NAME --policy-arn arn:aws:iam::aws:policy/AdministratorAccess
+
+echo "Roles $MAX_ROLE_NAME and $ADMIN_ROLE_NAME created and policies attached successfully!"
