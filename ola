@@ -1,0 +1,86 @@
+#!/bin/bash
+
+# Ensure the user provides a VPC ID
+if [ -z "$1" ]; then
+  echo "Usage: $0 <vpc-id>"
+  exit 1
+fi
+
+VPC_ID=$1
+
+# Retrieve and display VPC details
+echo "Fetching details for VPC: $VPC_ID"
+
+# Get VPC Information
+echo -e "\nVPC Information:"
+aws ec2 describe-vpcs --vpc-ids "$VPC_ID" --query "Vpcs[0]" --output table
+
+# Get Subnets in the VPC
+echo -e "\nSubnets in VPC:"
+aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" --query "Subnets[*].{SubnetID:SubnetId, AvailabilityZone:AvailabilityZone, CIDR:CidrBlock}" --output table
+
+# Get Route Tables associated with the VPC
+echo -e "\nRoute Tables in VPC:"
+aws ec2 describe-route-tables --filters "Name=vpc-id,Values=$VPC_ID" --query "RouteTables[*].{RouteTableID:RouteTableId, Routes:Routes[*].DestinationCidrBlock}" --output table
+
+# Get Internet Gateways attached to the VPC
+echo -e "\nInternet Gateways:"
+aws ec2 describe-internet-gateways --filters "Name=attachment.vpc-id,Values=$VPC_ID" --query "InternetGateways[*].{InternetGatewayID:InternetGatewayId}" --output table
+
+# Get NAT Gateways in the VPC
+echo -e "\nNAT Gateways:"
+aws ec2 describe-nat-gateways --filter "Name=vpc-id,Values=$VPC_ID" --query "NatGateways[*].{NatGatewayID:NatGatewayId, SubnetID:SubnetId, State:State}" --output table
+
+# Get Security Groups in the VPC
+echo -e "\nSecurity Groups in VPC:"
+aws ec2 describe-security-groups --filters "Name=vpc-id,Values=$VPC_ID" --query "SecurityGroups[*].{GroupName:GroupName, GroupID:GroupId, Description:Description}" --output table
+
+# Get Network ACLs in the VPC
+echo -e "\nNetwork ACLs in VPC:"
+aws ec2 describe-network-acls --filters "Name=vpc-id,Values=$VPC_ID" --query "NetworkAcls[*].{AclId:NetworkAclId, Entries:Entries[*].CidrBlock}" --output table
+
+# Get VPC Peering Connections
+echo -e "\nVPC Peering Connections:"
+aws ec2 describe-vpc-peering-connections --filters "Name=requester-vpc-info.vpc-id,Values=$VPC_ID" --query "VpcPeeringConnections[*].{PeeringConnectionId:VpcPeeringConnectionId, Status:Status.Code, AccepterVPC:AccepterVpcInfo.VpcId}" --output table
+
+# Get VPC Endpoints
+echo -e "\nVPC Endpoints:"
+aws ec2 describe-vpc-endpoints --filters "Name=vpc-id,Values=$VPC_ID" --query "VpcEndpoints[*].{EndpointID:VpcEndpointId, ServiceName:ServiceName, State:State}" --output table
+
+# Transit Gateway Information
+echo -e "\nChecking for Transit Gateway Attachments to VPC..."
+
+# List Transit Gateway Attachments for the VPC
+TGW_ATTACHMENTS=$(aws ec2 describe-transit-gateway-attachments --filters "Name=resource-id,Values=$VPC_ID" --query "TransitGatewayAttachments[*].TransitGatewayAttachmentId" --output text)
+
+if [ -z "$TGW_ATTACHMENTS" ]; then
+  echo "No Transit Gateway Attachments found for VPC: $VPC_ID"
+else
+  echo -e "\nTransit Gateway Attachments:"
+  aws ec2 describe-transit-gateway-attachments --filters "Name=resource-id,Values=$VPC_ID" --query "TransitGatewayAttachments[*].{AttachmentID:TransitGatewayAttachmentId, TGWID:TransitGatewayId, State:State}" --output table
+
+  # Get details for each Transit Gateway related to this VPC
+  for ATTACHMENT_ID in $TGW_ATTACHMENTS; do
+    echo -e "\nDetails for Transit Gateway Attachment: $ATTACHMENT_ID"
+
+    # Get Transit Gateway ID from attachment
+    TGW_ID=$(aws ec2 describe-transit-gateway-attachments --transit-gateway-attachment-ids "$ATTACHMENT_ID" --query "TransitGatewayAttachments[0].TransitGatewayId" --output text)
+
+    # Get Transit Gateway details
+    echo -e "\nTransit Gateway Information for TGW: $TGW_ID"
+    aws ec2 describe-transit-gateways --transit-gateway-ids "$TGW_ID" --query "TransitGateways[0].{TGWID:TransitGatewayId, Description:Description, State:State, CreationTime:CreationTime}" --output table
+
+    # Get Transit Gateway Route Tables
+    echo -e "\nTransit Gateway Route Tables associated with TGW: $TGW_ID"
+    aws ec2 describe-transit-gateway-route-tables --filters "Name=transit-gateway-id,Values=$TGW_ID" --query "TransitGatewayRouteTables[*].{RouteTableID:TransitGatewayRouteTableId, State:State}" --output table
+
+    # Show routes for each route table
+    ROUTE_TABLES=$(aws ec2 describe-transit-gateway-route-tables --filters "Name=transit-gateway-id,Values=$TGW_ID" --query "TransitGatewayRouteTables[*].TransitGatewayRouteTableId" --output text)
+    for ROUTE_TABLE_ID in $ROUTE_TABLES; do
+      echo -e "\nRoutes in Transit Gateway Route Table: $ROUTE_TABLE_ID"
+      aws ec2 search-transit-gateway-routes --transit-gateway-route-table-id "$ROUTE_TABLE_ID" --filters "Name=state,Values=active" --query "Routes[*].{CIDR:DestinationCidrBlock, TGWAttachmentID:TransitGatewayAttachments[0].TransitGatewayAttachmentId}" --output table
+    done
+  done
+fi
+
+echo -e "\nDetails gathered for VPC: $VPC_ID and associated Transit Gateway(s)"
