@@ -1,0 +1,50 @@
+provider "helm" {
+  kubernetes {
+    config_path = "~/.kube/config"
+  }
+}
+
+resource "helm_release" "aws_load_balancer_controller" {
+  name       = "aws-load-balancer-controller"
+  repository = "https://aws.github.io/eks-charts"
+  chart      = "aws-load-balancer-controller"
+  namespace  = "kube-system"
+
+  set {
+    name  = "clusterName"
+    value = "<EKS_CLUSTER_NAME>"
+  }
+
+  set {
+    name  = "serviceAccount.create"
+    value = "false"
+  }
+
+  set {
+    name  = "region"
+    value = "<AWS_REGION>"
+  }
+}
+
+###########
+
+resource "aws_acm_certificate" "wildcard_cert" {
+  domain_name       = "*.example.com"
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = {
+    Name = "Wildcard Cert for *.example.com"
+  }
+}
+
+
+
+
+
+
+
+
