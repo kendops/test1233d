@@ -1,0 +1,108 @@
+resource "aws_iam_role" "alb_controller_role" {
+  name = "eks-alb-controller-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect    = "Allow"
+        Principal = {
+          Service = "eks.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "alb_controller_policy" {
+  policy_arn = "arn:aws:iam::aws:policy/AWSLoadBalancerControllerIAMPolicy"
+  role       = aws_iam_role.alb_controller_role.name
+}
+
+#############
+
+provider "helm" {
+  kubernetes {
+    config_path = "~/.kube/config"
+  }
+}
+
+resource "helm_release" "alb_controller" {
+  name       = "aws-load-balancer-controller"
+  repository = "https://aws.github.io/eks-charts"
+  chart      = "aws-load-balancer-controller"
+  namespace  = "kube-system"
+
+  set {
+    name  = "clusterName"
+    value = "<EKS_CLUSTER_NAME>"
+  }
+
+  set {
+    name  = "serviceAccount.create"
+    value = "false"
+  }
+
+  set {
+    name  = "serviceAccount.name"
+    value = "alb-controller-sa"
+  }
+
+  set {
+    name  = "region"
+    value = "<AWS_REGION>"
+  }
+}
+
+###########
+
+resource "aws_acm_certificate" "wildcard_cert" {
+  domain_name       = "*.example.com"
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = {
+    Name = "Wildcard Cert for *.example.com"
+  }
+}
+
+#############
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: internal-ingress
+  namespace: default
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/certificate-arn: "${aws_acm_certificate.wildcard_cert.arn}"
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/target-type: ip
+spec:
+  rules:
+    - host: "app.example.com"
+      http:
+        paths:
+          - path: "/"
+            pathType: Prefix
+            backend:
+              service:
+                name: my-app-service
+                port:
+                  number: 80
+
+########
+
+output "alb_dns_name" {
+  value       = aws_lb.internal_alb.dns_name
+  description = "The DNS name of the internal ALB"
+}
+
+
+
+
+
+
