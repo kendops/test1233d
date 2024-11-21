@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# Function to get disk usage on a node
+check_disk_usage() {
+  local node_ip=$1
+  echo "Checking disk usage on node: $node_ip"
+  ssh "$node_ip" "df -h"
+  echo "---------------------------------------"
+}
+
+# Get all node IPs
+node_ips=$(kubectl get nodes -o wide | awk 'NR>1 {print $6}')
+
+if [[ -z "$node_ips" ]]; then
+  echo "No nodes found in the cluster."
+  exit 1
+fi
+
+# Loop through all node IPs and check disk usage
+for node_ip in $node_ips; do
+  check_disk_usage "$node_ip"
+done
