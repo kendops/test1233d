@@ -1,0 +1,94 @@
+To automatically restart a Kubernetes pod when it is in a 0/1 state, you can create a scheduled job that periodically checks the pod’s status and restarts it if necessary. Here’s how you can achieve this:
+
+Step 1: Use a CronJob
+
+A Kubernetes CronJob can periodically run a script that monitors pod status and restarts it when needed.
+	1.	Create a Script to Monitor and Restart Pods
+Write a script (e.g., restart-pod.sh) that uses kubectl to check pod statuses and restart pods if they are not in the desired state:
+
+#!/bin/bash
+NAMESPACE="your-namespace"
+POD_NAME="your-pod-name"
+
+# Check pod status
+STATUS=$(kubectl get pod $POD_NAME -n $NAMESPACE -o jsonpath='{.status.containerStatuses[0].ready}')
+
+if [ "$STATUS" != "true" ]; then
+    echo "Pod $POD_NAME in namespace $NAMESPACE is not ready. Restarting..."
+    kubectl delete pod $POD_NAME -n $NAMESPACE
+else
+    echo "Pod $POD_NAME is running and ready."
+fi
+
+
+	2.	Create a CronJob YAML File
+Define a CronJob to run this script at regular intervals (e.g., every 5 minutes):
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: restart-pod-checker
+spec:
+  schedule: "*/5 * * * *" # Runs every 5 minutes
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: pod-checker
+            image: bitnami/kubectl:latest # Or any image with kubectl
+            command: ["/bin/bash", "-c"]
+            args:
+              - |
+                #!/bin/bash
+                NAMESPACE="your-namespace"
+                POD_NAME="your-pod-name"
+                STATUS=$(kubectl get pod $POD_NAME -n $NAMESPACE -o jsonpath='{.status.containerStatuses[0].ready}')
+                if [ "$STATUS" != "true" ]; then
+                    echo "Pod $POD_NAME is not ready. Restarting..."
+                    kubectl delete pod $POD_NAME -n $NAMESPACE
+                else
+                    echo "Pod $POD_NAME is ready."
+                fi
+          restartPolicy: OnFailure
+
+Replace:
+	•	your-namespace with the namespace of your pod.
+	•	your-pod-name with the name of the pod to monitor.
+
+	3.	Apply the CronJob
+Deploy the CronJob in your cluster:
+
+kubectl apply -f restart-pod-cronjob.yaml
+
+Step 2: Alternative - Configure Liveness Probe
+
+If restarting is needed due to application issues, consider configuring a Liveness Probe in the pod definition to automate restarts without manual intervention:
+	1.	Edit the pod’s deployment YAML to include a liveness probe:
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 5
+
+Replace the httpGet block with the appropriate check for your application (e.g., HTTP endpoint, TCP port).
+
+	2.	Apply the updated configuration:
+
+kubectl apply -f your-deployment.yaml
+
+Step 3: Use Kubernetes Operators or Tools
+
+For more advanced monitoring and remediation:
+	•	Kubernetes Operators: Use tools like Kured for automated pod restarts.
+	•	Custom Controller: Write a Kubernetes Operator to monitor and restart pods based on custom conditions.
+
+Best Practices
+
+	1.	Root Cause Analysis: Investigate why the pod is in a 0/1 state and address the underlying issue (e.g., resource limits, failing health checks).
+	2.	Set Resource Requests and Limits: Prevent resource starvation that may cause pods to fail.
+	3.	Monitor with Alerts: Use tools like Prometheus and Alertmanager to get notified about failing pods.
+
+Let me know if you need help deploying or customizing the solution!
