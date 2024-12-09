@@ -1,0 +1,68 @@
+import requests
+from requests.auth import HTTPBasicAuth
+import json
+
+# Jira credentials and URL
+JIRA_URL = "https://your-jira-instance.atlassian.net"
+API_USER = "your-email@example.com"
+API_TOKEN = "your-api-token"
+GROUP_NAME = "your-group-name"  # Group to add users to
+
+# User data
+data = [
+    {"name": "John Doe", "email": "jdoe@gmail.com", "username": "jdoe@gmail.com"},
+    {"name": "James Wills", "email": "jwills@gmail.com", "username": "jwills@gmail.com"},
+]
+
+def create_user(user):
+    """Create a user in Jira"""
+    url = f"{JIRA_URL}/rest/api/3/user"
+    payload = {
+        "emailAddress": user["email"],
+        "displayName": user["name"],
+        "name": user["username"]  # Username is deprecated but still required in some setups
+    }
+
+    response = requests.post(
+        url,
+        auth=HTTPBasicAuth(API_USER, API_TOKEN),
+        headers={"Content-Type": "application/json"},
+        data=json.dumps(payload)
+    )
+
+    if response.status_code == 201:
+        print(f"User {user['name']} created successfully.")
+        return True
+    elif response.status_code == 400:
+        print(f"User {user['name']} already exists.")
+        return True
+    else:
+        print(f"Failed to create user {user['name']}. Error: {response.text}")
+        return False
+
+def add_user_to_group(username):
+    """Add a user to a Jira group"""
+    url = f"{JIRA_URL}/rest/api/3/group/user"
+    params = {"groupname": GROUP_NAME}
+    payload = {"accountId": username}
+
+    response = requests.post(
+        url,
+        auth=HTTPBasicAuth(API_USER, API_TOKEN),
+        headers={"Content-Type": "application/json"},
+        params=params,
+        data=json.dumps(payload)
+    )
+
+    if response.status_code == 201:
+        print(f"User {username} added to group {GROUP_NAME} successfully.")
+    else:
+        print(f"Failed to add user {username} to group {GROUP_NAME}. Error: {response.text}")
+
+def main():
+    for user in data:
+        if create_user(user):
+            add_user_to_group(user["username"])
+
+if __name__ == "__main__":
+    main()
