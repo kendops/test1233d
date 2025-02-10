@@ -6,24 +6,24 @@ SUCCESS_LIST=()
 FAILURE_LIST=()
 
 # Color codes
-GREEN='\033[0;32m'  # Green for success
-RED='\033[0;31m'    # Red for failure
-NC='\033[0m'        # No color
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m'
 
-# Ensure the script runs with root privileges
+# Ensure script runs as root
 if [[ $EUID -ne 0 ]]; then
    echo -e "${RED}This script must be run as root (use sudo).${NC}" | tee -a "$LOG_FILE"
    exit 1
 fi
 
-# Create/clear log files
+# Clear previous logs
 echo "Installation started at $(date)" | tee "$LOG_FILE" "$SUMMARY_FILE"
 
-echo "Updating system and setting up repositories..." | tee -a "$LOG_FILE"
-dnf update -y 2>&1 | tee -a "$LOG_FILE"
+echo "Updating system..." | tee -a "$LOG_FILE"
+dnf update -y 2>&1 | tee -a "$LOG_FILE" || echo -e "${RED}⚠️ System update failed! Continuing...${NC}" | tee -a "$LOG_FILE"
 
-echo "Installing required dependencies..." | tee -a "$LOG_FILE"
-dnf install -y curl tar git 2>&1 | tee -a "$LOG_FILE"
+echo "Installing dependencies..." | tee -a "$LOG_FILE"
+dnf install -y curl tar git 2>&1 | tee -a "$LOG_FILE" || echo -e "${RED}⚠️ Some dependencies failed!${NC}" | tee -a "$LOG_FILE"
 
 # Function to check if a command exists
 command_exists() {
@@ -31,38 +31,58 @@ command_exists() {
 }
 
 install_package() {
-    package=$1
-    install_cmd=$2
-    check_cmd=$3
-    version_cmd=$4
+    local package="$1"
+    local install_cmd="$2"
+    local check_cmd="$3"
+    local version_cmd="$4"
 
     if command_exists "$check_cmd"; then
         version=$($version_cmd 2>/dev/null)
         echo -e "${GREEN}✅ $package is already installed: $version${NC}" | tee -a "$LOG_FILE"
         SUCCESS_LIST+=("${GREEN}✅ $package ($version)${NC}")
+        return
+    fi
+
+    echo "Installing $package..." | tee -a "$LOG_FILE"
+    eval "$install_cmd" 2>&1 | tee -a "$LOG_FILE" &
+    PID=$!
+    wait $PID
+
+    if command_exists "$check_cmd"; then
+        version=$($version_cmd 2>/dev/null)
+        echo -e "${GREEN}✅ $package installed successfully: $version${NC}" | tee -a "$LOG_FILE"
+        SUCCESS_LIST+=("${GREEN}✅ $package ($version)${NC}")
     else
-        echo "Installing $package..." | tee -a "$LOG_FILE"
-        eval "$install_cmd" 2>&1 | tee -a "$LOG_FILE"
-        
-        if command_exists "$check_cmd"; then
-            version=$($version_cmd 2>/dev/null)
-            echo -e "${GREEN}✅ $package installed successfully: $version${NC}" | tee -a "$LOG_FILE"
-            SUCCESS_LIST+=("${GREEN}✅ $package ($version)${NC}")
-        else
-            echo -e "${RED}❌ Failed to install $package!${NC}" | tee -a "$LOG_FILE"
-            FAILURE_LIST+=("${RED}❌ $package${NC}")
-        fi
+        echo -e "${RED}❌ Failed to install $package! Skipping...${NC}" | tee -a "$LOG_FILE"
+        FAILURE_LIST+=("${RED}❌ $package${NC}")
     fi
 }
+
+# Install Docker
+install_package "Docker" \
+    "dnf install -y docker && systemctl start docker && systemctl enable docker" \
+    "docker" "docker --version"
+
+# Add user to Docker group
+echo "Adding user to Docker group..." | tee -a "$LOG_FILE"
+groupadd docker 2>/dev/null
+usermod -aG docker "$USER" && newgrp docker
 
 # Install Node.js
 install_package "Node.js 22" \
     "curl -fsSL https://rpm.nodesource.com/setup_22.x | bash - && dnf install -y nodejs" \
     "node" "node -v"
 
-# Install npm and yarn
-install_package "npm" "npm install -g npm@latest" "npm" "npm -v"
-install_package "yarn" "npm install -g corepack && corepack enable && corepack prepare yarn@stable --activate" "yarn" "yarn -v"
+# Install npm
+install_package "npm" "npm install -g npm@11" "npm" "npm -v"
+
+# Install yarn with retry logic
+for attempt in {1..3}; do
+    install_package "yarn" "npm install -g corepack && corepack enable && corepack prepare yarn@stable --activate" "yarn" "yarn -v"
+    if command_exists "yarn"; then break; fi
+    echo -e "${RED}Retrying Yarn installation (Attempt $attempt)...${NC}" | tee -a "$LOG_FILE"
+    sleep 3
+done
 
 # JavaScript Dependencies
 JS_DEPENDENCIES=("react@19" "react-dom@19" "react-router-dom@7.1.3" "react-hot-toast@2.5.1"
@@ -81,21 +101,15 @@ for package in "${JS_DEPENDENCIES[@]}"; do
         SUCCESS_LIST+=("${GREEN}✅ $package (Already Installed)${NC}")
     else
         echo "Installing $package..." | tee -a "$LOG_FILE"
-        npm install "$package" 2>&1 | tee -a "$LOG_FILE"
-        
-        if npm list "$package" --depth=0 &>/dev/null; then
-            echo -e "${GREEN}✅ $package installed successfully.${NC}" | tee -a "$LOG_FILE"
-            SUCCESS_LIST+=("${GREEN}✅ $package${NC}")
-        else
-            echo -e "${RED}❌ Failed to install $package!${NC}" | tee -a "$LOG_FILE"
-            FAILURE_LIST+=("${RED}❌ $package${NC}")
-        fi
+        npm install "$package" --silent 2>&1 | tee -a "$LOG_FILE" || echo -e "${RED}❌ Skipping $package.${NC}" | tee -a "$LOG_FILE"
     fi
 done
 
-# Install Vite and Gatsby
-install_package "Vite" "npm install -g vite@latest" "vite" "vite --version"
-install_package "Gatsby" "npm install -g gatsby-cli@latest" "gatsby" "gatsby --version"
+# Install Vite 15.16
+install_package "Vite 15.16" "npm install -g vite@15.16" "vite" "vite --version"
+
+# Install Gatsby 15.1.6
+install_package "Gatsby 15.1.6" "npm install -g gatsby-cli@15.1.6" "gatsby" "gatsby --version"
 
 # Install kubectl
 install_package "kubectl" \
@@ -107,16 +121,13 @@ install_package "Minikube" \
     "curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64 && install minikube-linux-amd64 /usr/local/bin/minikube" \
     "minikube" "minikube version"
 
-# Start Minikube
+# Start Minikube with timeout
 if command_exists "minikube"; then
     echo "Starting Minikube with Docker driver..." | tee -a "$LOG_FILE"
-    minikube start --driver=docker 2>&1 | tee -a "$LOG_FILE"
-
-    echo "Verifying Minikube Status..." | tee -a "$LOG_FILE"
-    minikube status 2>&1 | tee -a "$LOG_FILE"
+    timeout 180s minikube start --driver=docker 2>&1 | tee -a "$LOG_FILE" || echo -e "${RED}❌ Minikube start timed out.${NC}" | tee -a "$LOG_FILE"
 fi
 
-# Final Summary with Colors
+# Final Summary
 echo "------------------------------------------------" | tee -a "$LOG_FILE" "$SUMMARY_FILE"
 echo -e "${GREEN}✅ Successfully Installed:${NC}" | tee -a "$LOG_FILE" "$SUMMARY_FILE"
 for success in "${SUCCESS_LIST[@]}"; do
@@ -131,4 +142,3 @@ done
 
 echo "" | tee -a "$LOG_FILE" "$SUMMARY_FILE"
 echo "Installation completed at $(date)." | tee -a "$LOG_FILE" "$SUMMARY_FILE"
-echo "Check logs at $LOG_FILE and summary at $SUMMARY_FILE." | tee -a "$LOG_FILE" "$SUMMARY_FILE"
