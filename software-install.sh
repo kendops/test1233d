@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Define colors
+GREEN="\e[32m"
+RED="\e[31m"
+RESET="\e[0m"
+
 # List of URLs to check
 URLS=(
     "https://www.google.com"
@@ -18,9 +23,9 @@ URLS=(
 check_url() {
     local url=$1
     if curl --head --silent --fail "$url" > /dev/null; then
-        echo "✔️  $url is reachable"
+        echo -e "${GREEN}✔️  $url is reachable${RESET}"
     else
-        echo "❌  $url is NOT reachable"
+        echo -e "${RED}❌  $url is NOT reachable${RESET}"
     fi
 }
 
