@@ -9,17 +9,21 @@ NC="\e[0m"  # No Color
 LOG_FILE="./installation_log.txt"
 > "$LOG_FILE"  # Clear the log file if it already exists
 
-# Step 1: Install npm first
-echo -e "\nInstalling npm..." | tee -a "$LOG_FILE"
-sudo yum install -y npm &>> "$LOG_FILE"
-if [ $? -eq 0 ]; then
-  echo -e "${GREEN} npm installed successfully${NC}" | tee -a "$LOG_FILE"
+# Step 1: Install npm first if not installed
+echo -e "\nChecking and installing npm..." | tee -a "$LOG_FILE"
+if ! command -v npm &> /dev/null; then
+  sudo yum install -y npm &>> "$LOG_FILE"
+  if [ $? -eq 0 ]; then
+    echo -e "${GREEN} npm installed successfully${NC}" | tee -a "$LOG_FILE"
+  else
+    echo -e "${RED} npm installation failed${NC}" | tee -a "$LOG_FILE"
+    exit 1  # Exit if npm installation fails
+  fi
 else
-  echo -e "${RED} npm installation failed${NC}" | tee -a "$LOG_FILE"
-  exit 1  # Exit if npm installation fails
+  echo -e "${GREEN} npm is already installed ($(npm -v))${NC}" | tee -a "$LOG_FILE"
 fi
 
-# Software list
+# Software list with version
 declare -A software_list=(
   ["NodeJS"]="curl -sL https://rpm.nodesource.com/setup_22.x | sudo bash - && sudo yum install -y nodejs"
   ["React"]="npm install -g react@19"
@@ -40,6 +44,20 @@ declare -A software_list=(
   ["MySQL Client"]="sudo yum install -y mysql"
 )
 
+# Function to check if a software is installed and its version
+check_version() {
+  local name="$1"
+  local version_command="$2"
+  version=$($version_command 2>/dev/null)
+
+  if [ $? -eq 0 ]; then
+    echo -e "${GREEN} $name is already installed ($version)${NC}" | tee -a "$LOG_FILE"
+    return 0
+  else
+    return 1
+  fi
+}
+
 # Installation function
 install_software() {
   local name="$1"
@@ -59,10 +77,25 @@ install_software() {
 # Track installation results
 declare -A install_results
 
-# Install all software
+# Check and install each software
 for software in "${!software_list[@]}"; do
-  install_software "$software" "${software_list[$software]}"
-  install_results["$software"]=$?
+  case $software in
+    "NodeJS") check_command="node --version" ;;
+    "React" | "jwt-decode" | "react-router-dom" | "react-hot-toast" | "material UI" | "moment" | "axios" | "react-icon" | "react-hook-form" | "NextJS" | "Vite" | "Gatsby")
+      check_command="npm list -g $software | grep $software"
+      ;;
+    "kubectl") check_command="kubectl version --client --short" ;;
+    "Docker") check_command="docker --version" ;;
+    "Minikube") check_command="minikube version" ;;
+    "MySQL Client") check_command="mysql --version" ;;
+  esac
+
+  if check_version "$software" "$check_command"; then
+    install_results["$software"]=0
+  else
+    install_software "$software" "${software_list[$software]}"
+    install_results["$software"]=$?
+  fi
 done
 
 # Docker post-install steps
