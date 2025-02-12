@@ -9,19 +9,19 @@ NC="\e[0m"  # No Color
 LOG_FILE="./verification_log.txt"
 > "$LOG_FILE"  # Clear the log file if it already exists
 
-# Software list with the commands to check their version
+# Software list with the correct commands to check their version
 declare -A version_commands=(
-  ["NodeJS"]="node --version"
-  ["React"]="npm list -g react | grep react"
-  ["jwt-decode"]="npm list -g jwt-decode | grep jwt-decode"
-  ["react-router-dom"]="npm list -g react-router-dom | grep react-router-dom"
-  ["react-hot-toast"]="npm list -g react-hot-toast | grep react-hot-toast"
-  ["material UI"]="npm list -g @mui/material | grep @mui/material"
-  ["moment"]="npm list -g moment | grep moment"
-  ["axios"]="npm list -g axios | grep axios"
-  ["react-icon"]="npm list -g react-icons | grep react-icons"
-  ["react-hook-form"]="npm list -g react-hook-form | grep react-hook-form"
-  ["NextJS"]="npm list -g next | grep next"
+  ["NodeJS"]="node -v"
+  ["React"]="npm list -g react --depth=0 | grep react"
+  ["jwt-decode"]="npm list -g jwt-decode --depth=0 | grep jwt-decode"
+  ["react-router-dom"]="npm list -g react-router-dom --depth=0 | grep react-router-dom"
+  ["react-hot-toast"]="npm list -g react-hot-toast --depth=0 | grep react-hot-toast"
+  ["material UI"]="npm list -g @mui/material --depth=0 | grep @mui/material"
+  ["moment"]="npm list -g moment --depth=0 | grep moment"
+  ["axios"]="npm list -g axios --depth=0 | grep axios"
+  ["react-icon"]="npm list -g react-icons --depth=0 | grep react-icons"
+  ["react-hook-form"]="npm list -g react-hook-form --depth=0 | grep react-hook-form"
+  ["NextJS"]="npm list -g next --depth=0 | grep next"
   ["Vite"]="vite --version"
   ["Gatsby"]="gatsby --version"
   ["kubectl"]="kubectl version --client --short"
