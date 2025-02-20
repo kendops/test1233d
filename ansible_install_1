@@ -1,0 +1,101 @@
+Installing Ansible Automation Platform v2.5 with Custom Certificates (6-Node HA Setup)
+Prerequisites
+
+6 Linux servers (RHEL 8/9 or equivalent) with root or sudo access
+A valid SSL/TLS certificate (custom CA-signed or self-signed)
+PostgreSQL database for HA setup
+Required dependencies (Python, Podman, Ansible, etc.)
+Step 1: Prepare the Infrastructure
+
+Update and Install Required Packages
+sudo dnf update -y
+sudo dnf install -y epel-release 
+sudo dnf install -y ansible-core python3-pip podman
+Set Hostname and Networking
+Ensure all nodes have proper DNS resolution and static IP addresses.
+Set hostnames accordingly:
+sudo hostnamectl set-hostname aap-controller-1.example.com
+Disable SELinux and Firewalld (if required, adjust policies instead)
+sudo setenforce 0
+sudo sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config
+sudo systemctl disable --now firewalld
+Configure Ansible Inventory
+[automationcontroller]
+controller-1.example.com
+controller-2.example.com
+controller-3.example.com
+
+[database]
+db-node.example.com
+
+[execution_nodes]
+execution-1.example.com
+execution-2.example.com
+Step 2: Install Ansible Automation Platform (AAP) v2.5
+
+Download and Extract Installer
+curl -O https://releases.ansible.com/aap/ansible-automation-platform-setup-2.5.tar.gz
+tar -xvf ansible-automation-platform-setup-2.5.tar.gz
+cd ansible-automation-platform-setup-2.5
+Edit the Inventory File for HA Setup
+Modify inventory for HA controllers and execution nodes:
+[automationcontroller]
+controller-1.example.com
+controller-2.example.com
+controller-3.example.com
+[execution_nodes]
+execution-1.example.com
+execution-2.example.com
+[database]
+db-node.example.com
+Set database configurations:
+[database:vars]
+pg_host=db-node.example.com
+pg_port=5432
+pg_database=awx
+pg_username=awx
+pg_password=securepassword
+Run the Installation Playbook
+ansible-playbook -i inventory install.yml
+Step 3: Configure Custom SSL Certificates
+
+Place SSL Certificate and Key in the Required Location
+sudo mkdir -p /etc/pki/tls/certs /etc/pki/tls/private
+sudo cp custom-cert.pem /etc/pki/tls/certs/aap.crt
+sudo cp custom-key.pem /etc/pki/tls/private/aap.key
+Modify Nginx Configuration for AAP
+Edit /etc/nginx/nginx.conf and update the SSL configuration:
+ssl_certificate /etc/pki/tls/certs/aap.crt;
+ssl_certificate_key /etc/pki/tls/private/aap.key;
+Restart Services to Apply Changes
+sudo systemctl restart nginx
+sudo systemctl restart ansible-automation-platform
+Step 4: Verify High Availability Setup
+
+Check Controller Node Status
+ansible-runner worker --status
+Verify Database Replication (If using HA Postgres)
+sudo -u postgres psql -c "SELECT * FROM pg_stat_replication;"
+Access the Ansible Automation Controller
+Open a browser and navigate to:
+https://controller-1.example.com
+Log in with the admin credentials provided in the installation.
+Step 5: Configure Load Balancer for HA
+
+Use HAProxy or NGINX to distribute traffic among controllers.
+Example HAProxy configuration:
+frontend aap_frontend
+    bind *:443 ssl crt /etc/haproxy/aap.pem
+    default_backend aap_backend
+
+backend aap_backend
+    balance roundrobin
+    server controller-1 controller-1.example.com:443 check ssl verify none
+    server controller-2 controller-2.example.com:443 check ssl verify none
+    server controller-3 controller-3.example.com:443 check ssl verify none
+Restart HAProxy:
+sudo systemctl restart haproxy
+Conclusion
+This setup ensures a highly available, secure deployment of Ansible Automation Platform v2.5 with custom SSL certificates. By leveraging HA controllers, execution nodes, and a dedicated database, the infrastructure is scalable and resilient for enterprise automation needs. 🚀
+
+Let me know if you need additional tweaks or optimizations!
