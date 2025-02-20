@@ -1,0 +1,74 @@
+To start and stop all Ansible Automation Platform (AAP) services, you can use the ansible-automation-platform-service command or manage services individually via systemd.
+
+Starting All Ansible Automation Platform Services
+
+Run the following command:
+
+ansible-automation-platform-service start
+
+Or, if managing services manually:
+
+sudo systemctl start automation-controller.service
+sudo systemctl start automation-hub.service
+sudo systemctl start receptor.service
+sudo systemctl start automation-services-catalog.service
+
+Stopping All Ansible Automation Platform Services
+
+To stop all services at once:
+
+ansible-automation-platform-service stop
+
+Or manually:
+
+sudo systemctl stop automation-controller.service
+sudo systemctl stop automation-hub.service
+sudo systemctl stop receptor.service
+sudo systemctl stop automation-services-catalog.service
+
+Checking Status of Services
+
+To verify whether services are running:
+
+ansible-automation-platform-service status
+
+Or manually:
+
+sudo systemctl status automation-controller.service
+sudo systemctl status automation-hub.service
+sudo systemctl status receptor.service
+sudo systemctl status automation-services-catalog.service
+
+Would you like additional details on configuring Ansible services to auto-start on boot?
+
+The Automation Gateway is a component of the Ansible Automation Platform (AAP) that facilitates event-driven automation and API-based workflows. To manage its services, follow these commands:
+
+Starting the Automation Gateway Service
+
+sudo systemctl start automation-gateway.service
+
+Or if using the Ansible Automation Platform service manager:
+
+ansible-automation-platform-service start
+
+Stopping the Automation Gateway Service
+
+sudo systemctl stop automation-gateway.service
+
+Or using the platform service manager:
+
+ansible-automation-platform-service stop
+
+Restarting the Automation Gateway Service
+
+sudo systemctl restart automation-gateway.service
+
+Checking the Status of Automation Gateway
+
+sudo systemctl status automation-gateway.service
+
+Enable Automation Gateway to Start on Boot
+
+sudo systemctl enable automation-gateway.service
+
+Would you like guidance on troubleshooting Automation Gateway if it fails to start or function correctly?
