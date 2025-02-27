@@ -83,4 +83,90 @@ else
   done
 fi
 
-echo -e "\nDetails gathered for VPC: $VPC_ID and associated Transit Gateway(s)"
+echo -e "\nDetails gathered for VPC: $VPC_ID and associated Transit Gateway(In Ansible Automation Platform (AAP) 2.5, you specify the Red Hat username and password in the inventory file before installation or when updating credentials. These credentials are required for subscription management (to register with Red Hat and enable required repositories).
+
+Steps to Add Red Hat Username & Password in AAP Inventory File
+
+1. Locate the Inventory File
+	•	If you installed AAP using the setup.sh script, the inventory file is usually located in:
+
+~/inventory
+
+
+	•	If AAP is already installed and you need to update credentials, navigate to the directory where the inventory file is stored.
+
+2. Edit the Inventory File
+
+Use a text editor to open the file:
+
+nano ~/inventory
+
+Or:
+
+vi ~/inventory
+
+3. Add or Modify the Subscription Credentials
+
+Locate the Red Hat Subscription Management section in the inventory file. Update it with your Red Hat username and password:
+
+[rhsm]
+rhsm_username=my_redhat_username
+rhsm_password=my_redhat_password
+rhsm_repos="ansible-automation-platform-2.5-for-rhel-9-x86_64-rpms"
+
+Explanation:
+	•	rhsm_username: Your Red Hat Customer Portal username.
+	•	rhsm_password: Your Red Hat Customer Portal password.
+	•	rhsm_repos: Specifies the required repository for AAP 2.5.
+
+4. Save and Exit
+	•	In Nano, press CTRL + X, then Y, then ENTER.
+	•	In Vi, press ESC, then type :wq, and press ENTER.
+
+5. Apply the Changes (If Needed)
+
+If AAP is already installed but the subscription was not registered properly, run:
+
+ansible-playbook -i ~/inventory setup.yml
+
+Or, if you only need to register the system:
+
+subscription-manager register --username=my_redhat_username --password=my_redhat_password --auto-attach
+
+Then enable the required repositories:
+
+subscription-manager repos --enable ansible-automation-platform-2.5-for-rhel-9-x86_64-rpms
+
+Alternative: Use Environment Variables (More Secure)
+
+Instead of storing your password in plaintext inside the inventory file, you can use environment variables in your shell before running the installation:
+
+export RHSM_USERNAME="my_redhat_username"
+export RHSM_PASSWORD="my_redhat_password"
+
+Then, modify the inventory file like this:
+
+[rhsm]
+rhsm_username={{ lookup('env', 'RHSM_USERNAME') }}
+rhsm_password={{ lookup('env', 'RHSM_PASSWORD') }}
+rhsm_repos="ansible-automation-platform-2.5-for-rhel-9-x86_64-rpms"
+
+This prevents the password from being stored in the file directly.
+
+Final Verification
+
+To ensure that your system is properly registered, run:
+
+subscription-manager status
+
+If everything is correct, you should see:
+
+Overall Status: Current
+
+Conclusion
+
+You can specify the Red Hat username and password in the AAP inventory file under the [rhsm] section. For security, consider using environment variables instead of hardcoding credentials. Let me know if you need further clarifications!
+
+
+
+
