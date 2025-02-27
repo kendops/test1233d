@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Define the nodes
+# Define nodes in the cluster
 NODES=("node1" "node2" "node3" "node4" "node5" "node6")
 
 # Define services related to AAP 2.5
@@ -11,6 +11,20 @@ SERVICES=(
     "nginx"
     "postgresql"
     "redis"
+)
+
+# Define packages to remove
+PACKAGES=(
+    "ansible"
+    "ansible-automation-platform"
+    "ansible-tower"
+    "ansible-hub"
+    "receptor"
+    "nginx"
+    "postgresql"
+    "redis"
+    "podman"
+    "python3-ansible*"
 )
 
 # Define directories to remove
@@ -28,35 +42,10 @@ DIRS=(
     "/opt/rh/rh-postgresql*/root/var/lib/pgsql/data"
 )
 
-# Define packages to remove
-PACKAGES=(
-    "ansible"
-    "ansible-automation-platform"
-    "ansible-tower"
-    "ansible-hub"
-    "receptor"
-    "nginx"
-    "postgresql"
-    "redis"
-    "podman"
-    "python3-ansible*"
-)
-
-# Function to uninstall AAP 2.5 using the installer
-uninstall_aap_with_setup() {
+# Function to manually uninstall AAP 2.5
+uninstall_aap() {
     local NODE=$1
-    echo "==== Attempting to uninstall AAP 2.5 using setup.sh on $NODE ===="
-    
-    # Run the uninstaller if setup.sh exists
-    ssh "$NODE" "if [ -f ~/setup.sh ]; then sudo ~/setup.sh -e; fi"
-    
-    echo "==== Completed setup.sh uninstallation on $NODE ===="
-}
-
-# Function to manually remove AAP 2.5 components
-uninstall_aap_manually() {
-    local NODE=$1
-    echo "==== Manually uninstalling AAP 2.5 on $NODE ===="
+    echo "==== Uninstalling AAP 2.5 on $NODE ===="
 
     # Stop and disable services
     for SERVICE in "${SERVICES[@]}"; do
@@ -68,17 +57,14 @@ uninstall_aap_manually() {
     # Uninstall all packages
     ssh "$NODE" "sudo yum remove -y ${PACKAGES[*]} && sudo yum autoremove -y"
 
-    # Remove directories except for /var/lib/pulp
-    for DIR in "${DIRS[@]}"; do
-        ssh "$NODE" "sudo rm -rf $DIR"
-    done
-
-    # Remove Pulp content safely
+    # Unmount and remove Pulp directory
     ssh "$NODE" "if mountpoint -q /var/lib/pulp; then echo 'Unmounting /var/lib/pulp on $NODE'; sudo umount /var/lib/pulp; fi"
     ssh "$NODE" "sudo rm -rf /var/lib/pulp/*"
 
-    # Ensure /var/lib/pulp is empty
-    ssh "$NODE" "if [ -d /var/lib/pulp ] && [ \"\$(ls -A /var/lib/pulp 2>/dev/null)\" ]; then echo '❌ /var/lib/pulp is NOT empty on $NODE'; else echo '✅ /var/lib/pulp is completely empty on $NODE'; fi"
+    # Remove directories
+    for DIR in "${DIRS[@]}"; do
+        ssh "$NODE" "sudo rm -rf $DIR"
+    done
 
     # Remove users and groups
     ssh "$NODE" "sudo userdel -r awx 2>/dev/null || true"
@@ -132,8 +118,7 @@ verify_uninstall() {
 
 # Iterate through all nodes and uninstall AAP 2.5
 for NODE in "${NODES[@]}"; do
-    uninstall_aap_with_setup "$NODE"
-    uninstall_aap_manually "$NODE"
+    uninstall_aap "$NODE"
     verify_uninstall "$NODE"
 done
 
