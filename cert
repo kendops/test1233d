@@ -1,0 +1,77 @@
+#!/bin/bash
+
+# Define server groups
+GATEWAY_SERVERS=(\"10.0.0.1\" \"10.0.0.2\")
+CONTROLLER_SERVERS=(\"10.0.0.3\" \"10.0.0.4\")
+HUB_SERVER=(\"10.0.0.6\")
+
+USERNAME=\"devops\"
+
+# Function to execute commands on remote servers
+execute_remote() {
+    local SERVER=$1
+    local COMMANDS=$2
+
+    echo \"Executing commands on $SERVER...\"
+    ssh -o StrictHostKeyChecking=no \"$USERNAME@$SERVER\" \"bash -s\" <<EOF
+    set -e
+    $COMMANDS
+EOF
+
+    if [ $? -eq 0 ]; then
+        echo \"✅ Commands executed successfully on $SERVER\"
+    else
+        echo \"❌ Error executing commands on $SERVER\"
+    fi
+}
+
+# Commands for each server group
+GATEWAY_COMMANDS=\"
+cp /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem_old
+cp /etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt /etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt_old
+cp gd_bundle-g2.crt /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+cp gd_bundle-g2.crt /etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt
+cp certnew.key /etc/pki/tls/private/gateway.key
+cp certnew.crt /etc/pki/tls/certs/gateway.crt
+cp certnew.key /etc/pki/tls/private/tower.key
+cp certnew.crt /etc/pki/tls/certs/tower.crt
+\"
+
+CONTROLLER_COMMANDS=\"
+cp /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem_old
+cp /etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt /etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt_old
+cp gd_bundle-g2.crt /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+cp gd_bundle-g2.crt /etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt
+cp certnew.key /etc/pki/tls/private/controller.key
+cp certnew.crt /etc/pki/tls/certs/controller.crt
+cp certnew.key /etc/pki/tls/private/tower.key
+cp certnew.crt /etc/pki/tls/certs/tower.crt
+\"
+
+HUB_COMMANDS=\"
+cp /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem_old
+cp /etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt /etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt_old
+cp gd_bundle-g2.crt /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+cp gd_bundle-g2.crt /etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt
+cp certnew.key /etc/pki/tls/private/hub.key
+cp certnew.crt /etc/pki/tls/certs/hub.crt
+cp certnew.key /etc/pki/tls/private/tower.key
+cp certnew.crt /etc/pki/tls/certs/tower.crt
+\"
+
+# Execute commands on GATEWAY_SERVERS
+for SERVER in \"${GATEWAY_SERVERS[@]}\"; do
+    execute_remote \"$SERVER\" \"$GATEWAY_COMMANDS\"
+done
+
+# Execute commands on CONTROLLER_SERVERS
+for SERVER in \"${CONTROLLER_SERVERS[@]}\"; do
+    execute_remote \"$SERVER\" \"$CONTROLLER_COMMANDS\"
+done
+
+# Execute commands on HUB_SERVER
+for SERVER in \"${HUB_SERVER[@]}\"; do
+    execute_remote \"$SERVER\" \"$HUB_COMMANDS\"
+done
+
+echo \"✅ All tasks completed successfully!\"
