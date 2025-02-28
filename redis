@@ -1,0 +1,9 @@
+cd /opt
+curl -O https://releases.ansible.com/aap/2.5/ansible-automation-platform-setup-bundle-2.5-1-x86_64.tar.gz
+tar -xvzf ansible-automation-platform-setup-bundle-2.5-1-x86_64.tar.gz
+cd ansible-automation-platform-setup-bundle-2.5-1-x86_64
+
+
+
+sudo systemctl status ansible-automation-platform.service
+
