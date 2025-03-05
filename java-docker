@@ -1,0 +1,162 @@
+
+Docker setup for a full-stack application with both frontend (React, Next.js, Gatsby, etc.) and backend (Spring Boot, Java 21, Maven, MySQL).
+
+NodeJS 22
+React NodeJS 19
+jwt-decode NodeJS 1.0.2
+react-router-dom NodeJS 7.1.3
+npm or yarn NodeJS 11
+react-hot-toast NodeJS 2.5.1
+material UI NodeJS 6.4.2
+moment NodeJS 2.30.1
+axios NodeJS 1.7.9
+react-icon NodeJS 1
+react-hook-form NodeJS 7.54.2
+NextJS NodeJS 15.1.6
+Vite NodeJS 5
+Gatsby NodeJS 15.1.6
+kubectl latest
+Back end software
+
+Java 21
+Maven Java 3.9.5
+Springboot Java 3.4.1
+Springboot JPA Data Maven 3.4.1
+Spring boot OAuth2 Client Maven 3.4.1
+Spring boot OAuth2 Resource Server Maven 3.4.1
+Spring boot Security Maven 3.4.1
+Spring boot Web Maven 3.4.1
+Spring boot WebFlux Maven 3.4.1
+MySQL Connector Maven 3.4.1
+Lombok Maven 3.4.1
+Spring boot Test Maven 3.4.1
+Reactor Test Maven 3.4.1
+Spring boot Security Test Maven 3.4.1
+Spring boot email Maven 3.4.1
+jwt-jackson Maven 0.12.6
+jwt-impl Maven 0.12.6
+jwt-api Maven 0.12.6
+
+#############################################################################################################################
+
+### Dockerfile for Frontend (Node.js + React/Next.js/Gatsby)
+
+# Use Node.js 22 as the base image
+FROM node:22
+
+# Set the working directory
+WORKDIR /app
+
+# Copy package.json and package-lock.json (or yarn.lock)
+COPY package*.json ./
+COPY yarn.lock ./
+
+# Install dependencies
+RUN npm install
+
+# Copy the rest of the app's source code
+COPY . .
+
+# Build the frontend
+RUN npm run build
+
+# Expose the default port for Vite/Next.js/Gatsby
+EXPOSE 3000
+
+# Start the application
+CMD ["npm", "start"]
+
+#############################################################################################################################
+
+### Dockerfile for Backend (Java 21 + Spring Boot)
+
+# Use an OpenJDK 21 image
+FROM openjdk:21
+
+# Set the working directory
+WORKDIR /app
+
+# Copy the Maven project
+COPY . .
+
+# Install Maven dependencies and build the JAR file
+RUN ./mvnw clean package -DskipTests
+
+# Expose port for Spring Boot
+EXPOSE 8080
+
+# Run the Spring Boot application
+CMD ["java", "-jar", "target/*.jar"]
+
+#############################################################################################################################
+Docker Compose Setup
+For better orchestration, use docker-compose to run both containers together.
+
+docker-compose.yml
+-----------------------------------------------------------------------------------------------------------------------------
+
+version: "3.9"
+
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - backend
+
+  backend:
+    build: ./backend
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://db:3306/backenddb
+      - SPRING_DATASOURCE_USERNAME=backenduser
+      - SPRING_DATASOURCE_PASSWORD=backendpass
+    depends_on:
+      - db
+
+  db:
+    image: mysql:8.0
+    restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=backenddb
+      - MYSQL_USER=backenduser
+      - MYSQL_PASSWORD=backendpass
+    ports:
+      - "3306:3306"
+    volumes:
+      - db-data:/var/lib/mysql
+
+volumes:
+  db-data:
+
+#############################################################################################################################
+
+### Steps to Build & Run
+  
+1. Build the Docker Image
+docker build -t fullstack-app .
+  
+2. Run the Container
+docker run -p 8080:8080 fullstack-app
+
+3. Access the Application
+Frontend (React/Next.js/Gatsby served as static files):
+http://localhost:8080
+Backend (Spring Boot REST API):
+http://localhost:8080/api
+
+### Why This Works
+- Multi-stage build: Reduces the final image size by keeping only the necessary files.
+- Frontend built separately: Avoids unnecessary dependencies in the final image.
+- Single container for both: Simplifies deployment.
+  
+This Dockerfile ensures an efficient and production-ready full-stack Java & Node.js application! 
+
