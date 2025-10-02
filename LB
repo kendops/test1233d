@@ -101,6 +101,8 @@ output "alb_dns_name" {
   description = "The DNS name of the internal ALB"
 }
 
+aws ec2 describe-instances --query "Reservations[*].Instances[*].{InstanceID:InstanceId,PrivateIP:PrivateIpAddress,PublicIP:PublicIpAddress,VPC:VpcId,SecurityGroups:SecurityGroups[*].GroupName|join(', ', @),EIP:NetworkInterfaces[0].Association.PublicIp,Subnet:SubnetId,Type:InstanceType,Status:State.Name,KeyPair:KeyName,Name:Tags[?Key=='Name'].Value|[0]}" --output table | grep -v terminated
+
 
 
 
