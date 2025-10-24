@@ -1,0 +1,40 @@
+KUBECONFIG=$(find ~/.kube/clusters -type f | sed ':a;N;s/\n/:/;ba') kubectl config view --flatten > 
+~/.kube/config'
+
+
+# Mac/Linux
+KUBECONFIG=~/.kube/config:~/.kube/config-dev:~/.kube/config-stg:~/.kube/config-prod \
+kubectl config view --merge --flatten > ~/.kube/config-merged
+
+mv ~/.kube/config ~/.kube/config.bak
+mv ~/.kube/config-merged ~/.kube/config
+
+# 3. List contexts and set the current one
+kubectl config get-contexts
+kubectl config current-context
+kubectl config use-context <context-name>
+
+4) Give contexts friendly names (recommended)
+# See current names
+kubectl config get-contexts
+
+# Rename to something simple
+kubectl config rename-context gke_proj-us-dev dev
+kubectl config rename-context arn:aws:eks:us-east-1:acct:cluster/stg stg
+kubectl config rename-context prod-cluster.prod.k8s.local prod
+
+# Switch by friendly name
+kubectl config use-context dev
+
+6) Verify you’re pointed at the right cluster/namespace
+kubectl config current-context
+kubectl cluster-info
+kubectl get ns
+kubectl get nodes -o wide
+7) (Optional) Quick helpers & hygiene
+Aliases:
+alias kctx='kubectl config get-contexts'
+alias kcu='kubectl config use-context'
+alias kcc='kubectl config current-context'
+Delete a context (doesn’t delete the cluster itself):
+kubectl config delete-context old-dev
