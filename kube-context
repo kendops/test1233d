@@ -1,6 +1,8 @@
 KUBECONFIG=$(find ~/.kube/clusters -type f | sed ':a;N;s/\n/:/;ba') kubectl config view --flatten > 
 ~/.kube/config'
 
+KUBECONFIG=$(find ~/.kube/clusters -type f | sed ':a;N;s/\n/:/;ba') kubectl config view --flatten > 
+~/.kube/config'
 
 # Mac/Linux
 KUBECONFIG=~/.kube/config:~/.kube/config-dev:~/.kube/config-stg:~/.kube/config-prod \
